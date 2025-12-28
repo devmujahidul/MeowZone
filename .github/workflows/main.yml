@@ -32,5 +32,6 @@ jobs:
         with:
           author_name: "GitHub Actions"
           author_email: "actions@github.com"
-          message: "Update playlist.m3u"
-          add: "playlist.m3u"
+          message: "Update playlist outputs"
+          # Include the JSON playlist and channel map so CI persists them too
+          add: "playlist.m3u playlist.json channel_map.json"
