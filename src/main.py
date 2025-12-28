@@ -5,11 +5,15 @@ import re
 import time
 import sys
 import logging
+import json
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
 BASE_URL = "http://tv.roarzone.info/"
 PLAYER_URL_TEMPLATE = "http://tv.roarzone.info/player.php?stream={}"
+CHANNEL_MAP_FILE = Path("channel_map.json")
+PLAYLIST_JSON_FILE = Path("playlist.json")
 
 
 async def fetch_main_page(session):
@@ -105,6 +109,68 @@ async def main():
         )
         filename = "playlist.m3u"
         print(f"Generating M3U playlist: {filename}")
+        # --- Load or initialize channel number mapping ---
+        try:
+            if CHANNEL_MAP_FILE.exists():
+                with CHANNEL_MAP_FILE.open("r", encoding="utf-8") as mf:
+                    channel_map = json.load(mf)
+            else:
+                channel_map = {}
+        except Exception as e:
+            logging.exception(f"Error loading channel map: {e}")
+            channel_map = {}
+
+        # channel_map is expected to be a dict mapping stream_path -> int
+        # Determine next available channel number
+        try:
+            existing_numbers = [int(v) for v in channel_map.values()] if channel_map else []
+            next_number = max(existing_numbers) + 1 if existing_numbers else 1
+        except Exception:
+            next_number = 1
+
+        # Build channels list with persistent channel numbers
+        json_channels = []
+        for ch in valid_channels:
+            key = ch.get("stream_path")
+            if not key:
+                continue
+            if key in channel_map:
+                number = int(channel_map[key])
+            else:
+                number = next_number
+                channel_map[key] = number
+                next_number += 1
+            json_channels.append(
+                {
+                    "channel_number": number,
+                    "name": ch.get("name"),
+                    "logo": ch.get("logo"),
+                    "group": ch.get("tags") or "Uncategorized",
+                    "url": ch.get("m3u8_url"),
+                    "stream_path": ch.get("stream_path"),
+                }
+            )
+
+        # Persist updated channel map and JSON playlist
+        try:
+            with CHANNEL_MAP_FILE.open("w", encoding="utf-8") as mf:
+                json.dump(channel_map, mf, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logging.exception(f"Failed to write channel map: {e}")
+            print(f"Failed to write channel map: {e}")
+
+        try:
+            # Sort channels in JSON by channel_number for stable ordering
+            json_payload = {
+                "generated_at": time.ctime(),
+                "channels": sorted(json_channels, key=lambda x: x["channel_number"]),
+            }
+            with PLAYLIST_JSON_FILE.open("w", encoding="utf-8") as jf:
+                json.dump(json_payload, jf, indent=2, ensure_ascii=False)
+            print(f"JSON playlist written: {PLAYLIST_JSON_FILE}")
+        except Exception as e:
+            logging.exception(f"Failed to write JSON playlist: {e}")
+            print(f"Failed to write JSON playlist: {e}")
         with open(filename, "w", encoding="utf-8") as f:
             f.write("#EXTM3U\n")
             f.write("# Made with love by Mahamudun Nabi Siam\n")
