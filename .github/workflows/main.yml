@@ -2,7 +2,13 @@ name: Run Python Script
 
 on:
   schedule:
-    - cron: "40 * * * *"
+    # Pattern 1: Run at minute 0 and 40 during even hours (0, 2, 4...)
+    # Creates: 00:00, 00:40, 02:00, 02:40...
+    - cron: "0,40 0-23/2 * * *"
+
+    # Pattern 2: Run at minute 20 during odd hours (1, 3, 5...)
+    # Creates: 01:20, 03:20...
+    - cron: "20 1-23/2 * * *"
   workflow_dispatch:
 
 jobs:
