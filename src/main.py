@@ -110,6 +110,7 @@ async def main():
         filename = "playlist.m3u"
         print(f"Generating M3U playlist: {filename}")
         # --- Load or initialize channel number mapping ---
+        # channel_map is expected to be a dict mapping stream_path -> int (IMMUTABLE once set)
         try:
             if CHANNEL_MAP_FILE.exists():
                 with CHANNEL_MAP_FILE.open("r", encoding="utf-8") as mf:
@@ -120,26 +121,41 @@ async def main():
             logging.exception(f"Error loading channel map: {e}")
             channel_map = {}
 
-        # channel_map is expected to be a dict mapping stream_path -> int
-        # Determine next available channel number
+        # Determine next available channel number (only for NEW channels)
+        # Never change existing channel numbers under any circumstances
         try:
             existing_numbers = [int(v) for v in channel_map.values()] if channel_map else []
             next_number = max(existing_numbers) + 1 if existing_numbers else 1
         except Exception:
             next_number = 1
 
-        # Build channels list with persistent channel numbers
+        # Track which channels were assigned to ensure no duplicates
+        assigned_numbers = set(channel_map.values())
+
+        # Build channels list with PERSISTENT channel numbers (NEVER CHANGE ONCE SET)
         json_channels = []
+        channels_updated = False
+        
         for ch in valid_channels:
             key = ch.get("stream_path")
             if not key:
                 continue
+            
+            # Check if this stream_path already has an assigned number
             if key in channel_map:
+                # USE THE EXISTING NUMBER - DO NOT CHANGE IT EVER
                 number = int(channel_map[key])
             else:
+                # NEW channel - find the next available number that hasn't been used
+                while next_number in assigned_numbers:
+                    next_number += 1
                 number = next_number
                 channel_map[key] = number
+                assigned_numbers.add(number)
                 next_number += 1
+                channels_updated = True
+                print(f"[NEW] Assigned channel #{number} to {ch.get('name')} ({key})")
+            
             json_channels.append(
                 {
                     "channel_number": number,
@@ -151,10 +167,15 @@ async def main():
                 }
             )
 
-        # Persist updated channel map and JSON playlist
+
+        # Persist updated channel map (only save if new channels were added)
         try:
-            with CHANNEL_MAP_FILE.open("w", encoding="utf-8") as mf:
-                json.dump(channel_map, mf, indent=2, ensure_ascii=False)
+            if channels_updated or not CHANNEL_MAP_FILE.exists():
+                with CHANNEL_MAP_FILE.open("w", encoding="utf-8") as mf:
+                    json.dump(channel_map, mf, indent=2, ensure_ascii=False)
+                print(f"Channel map updated: {CHANNEL_MAP_FILE}")
+            else:
+                print(f"Channel map unchanged - no new assignments")
         except Exception as e:
             logging.exception(f"Failed to write channel map: {e}")
             print(f"Failed to write channel map: {e}")
